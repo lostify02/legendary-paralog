@@ -1,0 +1,154 @@
+from http.client import BadStatusLine
+import random 
+import time 
+class character:
+    def __init__( self, Name, hp, attack_power):
+        self.name = Name 
+        self.hp = hp
+        self.max_hp = hp
+        self.attack_power = attack_power
+
+    def is_alive(self):
+        return self.hp>0
+
+    def take_damage(self, amount,):
+        self.hp = max(0, self.hp - amount )
+
+class player(character):
+    def __init__(self, name):
+        super().__init__(name, hp=120, attack_power=15)
+        self.mana = 50 
+        self.max_mana = 60 
+        self.potions = 3
+
+    def rest(self):
+        heal_amount = 30 
+        mana_restore= 20 
+        self.hp = min(self.max_hp, self.hp + heal_amount)          
+        self.mana = min(self.max_mana, self.mana + mana_restore)
+        print(f"\n{self.name}rest, recovering {heal_amount} HP and {mana_restore}MANA!!")
+
+class mob(character):
+    def __init__(self, name, hp, attack_power, element):
+        super().__init__(name, hp, attack_power)
+        self.element = element # physical,pyro,cyro,electro,holy,dark
+
+class Goblin(mob):
+    def __init__(self):
+        super().__init__(name="Goblin Scout", hp=60, attack_power=10, element= "physical")
+
+class FireDrake(mob):
+    def __init__(self):
+        super().__init__(name="Fir Drake", hp=90, attack_power=18 ,element="fire")
+
+class Undeadskeleton(mob):
+    def __init__(self):
+        super().__init__(name="Undead Skeleton", hp=80, attack_power=12, element="dark")
+
+def battel(player, mob):
+    print(f"\n[!] A WILD {mob.name} approaches !! (Element Type:{mob.element})")
+
+    while player.is_alive() and mob. is_alive():
+        print(f"\n--- status ---")
+        print(f"Hero: {player.hp}/{player.max_hp} HP | {player.mana}/{player.max_mana} MP | potions: {player.potions}")
+        print(f"Enemy: {mob.name} | {mob.hp}?{mob.max_hp}")
+
+        print("\nchoose an action:")
+        print("1. Quick slash (low damage, cheap)")
+        print("2. heavy crush (high physical damage, costs mana)")
+        print("3. null spike (ice damage, strong against fire )")
+        print("4. unholy smite (holy magic, strong against undead)")
+        print("5. health potion ")
+
+        choice = input("Enter choice (1-5):")
+        print()
+         
+        damage_dealt = 0
+        element_multiplier = 1.5
+
+        if choice == "1":
+            damage_dealt = random.randint(10, 15)
+            print(f"{player.name} performs a Quick Slash !")
+
+        elif choice == '2':
+            if player.mana >= 10:
+                player.mana -= 10
+                damage_dealt = random.randint(25, 35)
+                print(f"{player.name} unleashes a Heavy Crush !")
+            else:
+                print(" Not enough mana! turn wasted.")
+                continue
+        
+        elif choice == '3':
+            if player.mana >= 15:
+                player.mana -= 15
+                damage_dealt = random.randint(20, 28)
+                if mob.element == "fire":
+                    element_multiplier = 2.0
+                    print("Super effective! the ice chills the fiery beast!")
+                print(f"{player.name} casts null spike!")
+            else:
+                print(" Not enough mana! turn wasted.")
+                continue
+
+        elif choice == '4':
+            if player.mana >= 15:
+                player.mana -= 15
+                damage_dealt = random.randint(20 , 28)
+                if mob.element == "dark":
+                    element_multiplier = 2.0
+                    print("Critical weakness hit! holy light burns the undead creature!")
+                print(f"{player.name} casts unholy smite!")
+            else:
+                print(" Not enough mana! turn wasted.")
+                continue
+
+        elif choice == '5':
+            if player.potions > 0:
+                player.potions -= 1
+                player.hp = min(player.max_hp, player.hp + 40)
+                print(f"{player.name} drinks a health potion and recovers 40 HP!")
+            else:
+                print(" You are outta potions! panic sets in, and you lose your turn.")
+        else:
+            print(" Invalid choice! turn wasted.")
+            continue
+
+        final_damage = int(damage_dealt * element_multiplier)
+        mob.take_damage(final_damage)
+        print(f"-> It dealt {final_damage} damage to {mob.name}!")
+
+        if not mob.is_alive():
+            print(f"\n[+] success ! You defeated the mob {mob.name}!")
+            player.rest()
+
+        time.sleep(1)
+        mob_damage = random.randint(mob.attack_power - 4, mob.attack_power + 4)
+        player.take_damage(mob_damage)
+        print(f"\n[!] The {mob.name} strikes back ,dealing {mob_damage} damage to you :")
+
+        if not player.is_alive():
+            print(f"\n[x] Defeat.... {player.name}fell in battle ")
+            break
+
+def main():
+    print(" ================================================")
+    print("         WELCOME TO THE DUNGEON APEX ARENA       ")
+    print(" ================================================")
+    name = input(" ENTER YOU HERO NAME :")
+    hero = player(name)
+
+    dungeon_mobs = [Goblin(), FireDrake(), Undeadskeleton()]
+
+    for i, current_mob in enumerate(dungeon_mobs, 1):
+       print("\n============ BATTLE {i} OF 3 ============")
+
+       if not hero.is_alive():
+           print("\nGame Over ! better luck next time buddy.")      
+           break
+
+    else:
+        print(f"\nCongratulations, {hero.name}! You have cleared the entire dungeon !")
+
+if __name__ ==  '__main__':
+    main()
