@@ -17,10 +17,10 @@ i could not create an web but you want to  test and run it i would recommend tha
 enter this command in cmb ......'.pip install pygame'
 then you successfully run this game 
 and to test it locally -
-' python game.py 'run this in cmb 
+' python hhh.py 'run this in cmb or the name you give to the file 
 
 
 FOR  abc_1.py
 "pip install pygame" and then
-run-" python game.py "in the same terminal .
+run-" python abc_1.py "in the same terminal .
 the game will work .
