@@ -1,0 +1,187 @@
+import argparse
+import os
+import re
+import sqlite3
+import time
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+DB_FILE = "file_index.db"
+
+# --------------------------------------------------
+# Database Functions
+# --------------------------------------------------
+def init_db(conn):
+    """Create the files table and index if they don't exist."""
+    with conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS files (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                path TEXT UNIQUE,
+                filename TEXT,
+                extension TEXT,
+                size INTEGER,
+                mtime REAL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_filename ON files(filename);")
+
+def clear_db(conn):
+    """Clear all indexed entries."""
+    with conn:
+        conn.execute("DELETE FROM files;")
+
+def bulk_insert(conn, records):
+    """Insert or replace file records in batch."""
+    query = """
+        INSERT OR REPLACE INTO files (path, filename, extension, size, mtime)
+        VALUES (?, ?, ?, ?, ?)
+    """
+    with conn:
+        conn.executemany(query, records)
+
+# --------------------------------------------------
+# File Scanner Logic
+# --------------------------------------------------
+def scan_directory(root_path):
+    """
+    Recursively scans directory and returns metadata tuples.
+    Uses multi-threading to speed up directory traversal.
+    """
+    records = []
+    
+    def process_folder(folder_path):
+        folder_records = []
+        try:
+            with os.scandir(folder_path) as entries:
+                subfolders = []
+                for entry in entries:
+                    if entry.is_dir(follow_symlinks=False):
+                        subfolders.append(entry.path)
+                    elif entry.is_file(follow_symlinks=False):
+                        try:
+                            stat = entry.stat()
+                            ext = Path(entry.name).suffix.lower()
+                            folder_records.append((
+                                entry.path,
+                                entry.name,
+                                ext,
+                                stat.st_size,
+                                stat.st_mtime
+                            ))
+                        except (PermissionError, FileNotFoundError):
+                            continue
+                return folder_records, subfolders
+        except (PermissionError, FileNotFoundError):
+            return [], []
+
+    print(f"Scanning directory: {root_path} ...")
+    start_time = time.time()
+    
+    folders_to_scan = [root_path]
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        while folders_to_scan:
+            futures = [executor.submit(process_folder, folder) for folder in folders_to_scan]
+            folders_to_scan = []
+            for future in futures:
+                res_records, subfolders = future.result()
+                records.extend(res_records)
+                folders_to_scan.extend(subfolders)
+
+    elapsed = time.time() - start_time
+    print(f"Indexed {len(records)} files in {elapsed:.2f} seconds.")
+    return records
+
+# --------------------------------------------------
+# Search Logic
+# --------------------------------------------------
+def search_index(conn, query, extension=None, use_regex=False):
+    """Query the indexed database using pattern or regex matching."""
+    cursor = conn.cursor()
+    
+    if extension:
+        if not extension.startswith('.'):
+            extension = f".{extension}"
+        cursor.execute("SELECT path, size FROM files WHERE extension = ?", (extension.lower(),))
+    else:
+        cursor.execute("SELECT path, size FROM files")
+
+    results = []
+    
+    if use_regex:
+        pattern = re.compile(query, re.IGNORECASE)
+        for path, size in cursor.fetchall():
+            if pattern.search(Path(path).name):
+                results.append((path, size))
+    else:
+        # Simple substring search
+        query_lower = query.lower()
+        for path, size in cursor.fetchall():
+            if query_lower in Path(path).name.lower():
+                results.append((path, size))
+
+    return results
+
+# --------------------------------------------------
+# Formatting Helper
+# --------------------------------------------------
+def format_size(size_bytes):
+    """Format file size into human-readable unit."""
+    for unit in ['B', 'KB', 'MB', 'GB']:
+        if size_bytes < 1024.0:
+            return f"{size_bytes:6.1f} {unit}"
+        size_bytes /= 1024.0
+    return f"{size_bytes:6.1f} TB"
+
+# --------------------------------------------------
+# Main CLI Handler
+# --------------------------------------------------
+def main():
+    parser = argparse.ArgumentParser(description="Fast Local File Search & Indexer CLI tool")
+    subparsers = parser.add_subparsers(dest="command", help="Available subcommands")
+
+    # Index command
+    index_parser = subparsers.add_parser("index", help="Index a folder path")
+    index_parser.add_argument("path", type=str, help="Target folder path to index")
+
+    # Search command
+    search_parser = subparsers.add_parser("search", help="Search the indexed database")
+    search_parser.add_argument("query", type=str, help="Search string or regex pattern")
+    search_parser.add_argument("-e", "--ext", type=str, help="Filter by file extension (e.g. pdf, python, txt)")
+    search_parser.add_argument("-r", "--regex", action="store_true", help="Treat query as a regular expression")
+
+    args = parser.parse_args()
+
+    conn = sqlite3.connect(DB_FILE)
+    init_db(conn)
+
+    if args.command == "index":
+        target = os.path.abspath(args.path)
+        if not os.path.exists(target):
+            print(f"Error: Path '{target}' does not exist.")
+            return
+        
+        clear_db(conn)
+        records = scan_directory(target)
+        bulk_insert(conn, records)
+        print("Database updated successfully!")
+
+    elif args.command == "search":
+        print(f"Searching for '{args.query}'...")
+        start_time = time.time()
+        matches = search_index(conn, args.query, extension=args.ext, use_regex=args.regex)
+        elapsed = time.time() - start_time
+
+        print(f"\nFound {len(matches)} matching file(s) in {elapsed * 1000:.2f} ms:\n")
+        for path, size in matches[:50]:  # Limit output display to top 50 matches
+            print(f"[{format_size(size)}] {path}")
+
+        if len(matches) > 50:
+            print(f"\n... and {len(matches) - 50} more items.")
+    else:
+        parser.print_help()
+
+    conn.close()
+
+if __name__ == "__main__":
+    main()
